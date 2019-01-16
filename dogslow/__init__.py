@@ -145,26 +145,27 @@ class WatchdogMiddleware(object):
             msg = 'Slow Request Watchdog: %s' % request.META.get(
                 'PATH_INFO')
 
-            module = inspect.getmodule(frame.f_code)
+            if frame:
+                module = inspect.getmodule(frame.f_code)
 
-            # This is a bizarre construct, `module` in `function`, but
-            # this is how all stack traces are formatted.
-            extra['culprit'] = '%s in %s' % (
-                getattr(module, '__name__', '(unknown module)'),
-                frame.f_code.co_name)
+                # This is a bizarre construct, `module` in `function`, but
+                # this is how all stack traces are formatted.
+                extra['culprit'] = '%s in %s' % (
+                    getattr(module, '__name__', '(unknown module)'),
+                    frame.f_code.co_name)
 
-            # We've got to simplify the stack, because raven only accepts
-            # a list of 2-tuples of (frame, lineno).
-            # This is a list comprehension split over a few lines.
-            extra['stack'] = [
-                (frame, lineno)
-                for frame, filename, lineno, function, code_context, index
-                in inspect.getouterframes(frame)
-            ]
+                # We've got to simplify the stack, because raven only accepts
+                # a list of 2-tuples of (frame, lineno).
+                # This is a list comprehension split over a few lines.
+                extra['stack'] = [
+                    (frame, lineno)
+                    for frame, filename, lineno, function, code_context, index
+                    in inspect.getouterframes(frame)
+                ]
 
-            # Lastly, we have to reverse the order of the frames
-            # because getouterframes() gives it to you backwards.
-            extra['stack'].reverse()
+                # Lastly, we have to reverse the order of the frames
+                # because getouterframes() gives it to you backwards.
+                extra['stack'].reverse()
 
         logger.log(log_level, msg, extra=extra)
 
@@ -204,7 +205,8 @@ class WatchdogMiddleware(object):
                   thread_id,
                   os.getpid(),
                   started.strftime("%d-%m-%Y %H:%M:%S UTC"),)
-        output += stack(frame, with_locals=False)
+        if frame:
+            output += stack(frame, with_locals=False)
         output += '\n\n'
         stack_vars = getattr(settings, 'DOGSLOW_STACK_VARS', False)
         if not stack_vars:
@@ -217,13 +219,17 @@ class WatchdogMiddleware(object):
         else:
             output += 'Full backtrace with local variables:'
             output += '\n\n'
-            output += stack(frame, with_locals=True)
+            if frame:
+                output += stack(frame, with_locals=True)
         return output.encode('utf-8', errors=encoding_error_handler)
 
     @staticmethod
     def peek(request, thread_id, started):
         try:
-            frame = sys._current_frames()[thread_id]
+            try:
+                frame = sys._current_frames()[thread_id]
+            except KeyError:
+                frame = None
 
             req_string = '%s %s://%s%s' % (
                 request.META.get('REQUEST_METHOD'),
